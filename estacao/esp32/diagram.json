@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "author": "Projeto Estação Meteorológica",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp32",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht22",
+      "top": -115,
+      "left": 330,
+      "attrs": {
+        "temperature": "24",
+        "humidity": "60"
+      }
+    },
+    {
+      "type": "board-bmp180",
+      "id": "bmp180",
+      "top": 20,
+      "left": 330,
+      "attrs": {}
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled",
+      "top": 150,
+      "left": 320,
+      "attrs": {
+        "i2cAddress": "0x3c"
+      }
+    },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr",
+      "top": 260,
+      "left": -270,
+      "attrs": {
+        "lux": "500"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "mq135_sim",
+      "top": 115,
+      "left": -275,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "pluviometro",
+      "top": -90,
+      "left": -265,
+      "attrs": {
+        "color": "blue",
+        "label": "Pulso pluviometro"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "aviso_mq135",
+      "top": 210,
+      "left": -300,
+      "attrs": {
+        "text": "Potenciometro simula apenas o ADC do MQ-135"
+      }
+    }
+  ],
+  "connections": [
+    [ "esp32:3V3", "dht22:VCC", "red", [] ],
+    [ "esp32:GND.1", "dht22:GND", "black", [] ],
+    [ "esp32:14", "dht22:SDA", "green", [] ],
+
+    [ "esp32:3V3", "bmp180:VCC", "red", [] ],
+    [ "esp32:GND.1", "bmp180:GND", "black", [] ],
+    [ "esp32:22", "bmp180:SCL", "blue", [] ],
+    [ "esp32:21", "bmp180:SDA", "green", [] ],
+
+    [ "esp32:3V3", "oled:VCC", "red", [] ],
+    [ "esp32:GND.1", "oled:GND", "black", [] ],
+    [ "esp32:22", "oled:SCL", "blue", [] ],
+    [ "esp32:21", "oled:SDA", "green", [] ],
+
+    [ "esp32:3V3", "ldr:VCC", "red", [] ],
+    [ "esp32:GND.1", "ldr:GND", "black", [] ],
+    [ "esp32:35", "ldr:AO", "green", [] ],
+
+    [ "esp32:3V3", "mq135_sim:VCC", "red", [] ],
+    [ "esp32:GND.1", "mq135_sim:GND", "black", [] ],
+    [ "esp32:34", "mq135_sim:SIG", "green", [] ],
+
+    [ "esp32:13", "pluviometro:1.l", "green", [] ],
+    [ "esp32:GND.1", "pluviometro:2.l", "black", [] ]
+  ],
+  "dependencies": {}
+}

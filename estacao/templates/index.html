@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Dados ambientais da estação meteorológica">
+    <title>Estação Meteorológica</title>
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+    >
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        :root {
+            color-scheme: dark;
+            --fundo: #071521;
+            --painel: #102634;
+            --painel-claro: #163547;
+            --texto: #e8f3f7;
+            --suave: #9db5c1;
+            --destaque: #40c9a2;
+            --azul: #55b9f3;
+            --alerta: #ffcc66;
+            --erro: #ff7b7b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            padding: 32px 20px;
+            background:
+                radial-gradient(circle at top right, #17445b 0, transparent 36%),
+                var(--fundo);
+            color: var(--texto);
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont,
+                "Segoe UI", sans-serif;
+        }
+
+        .dashboard {
+            width: min(1120px, 100%);
+            margin: auto;
+        }
+
+        header {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 28px;
+        }
+
+        h1 {
+            margin: 0 0 7px;
+            font-size: clamp(1.8rem, 4vw, 2.8rem);
+            letter-spacing: -0.04em;
+        }
+
+        .subtitulo,
+        .atualizacao {
+            margin: 0;
+            color: var(--suave);
+        }
+
+        .conexao {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 7px;
+            font-weight: 700;
+        }
+
+        .indicador {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: var(--alerta);
+            box-shadow: 0 0 14px currentColor;
+        }
+
+        .indicador.online {
+            color: var(--destaque);
+            background: var(--destaque);
+        }
+
+        .indicador.erro {
+            color: var(--erro);
+            background: var(--erro);
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .card,
+        .grafico {
+            border: 1px solid rgb(255 255 255 / 8%);
+            border-radius: 18px;
+            background: linear-gradient(145deg, var(--painel-claro), var(--painel));
+            box-shadow: 0 16px 35px rgb(0 0 0 / 18%);
+        }
+
+        .card {
+            min-height: 156px;
+            padding: 22px;
+        }
+
+        .rotulo {
+            margin: 0 0 18px;
+            color: var(--suave);
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        .valor {
+            font-size: clamp(1.8rem, 4vw, 2.5rem);
+            font-weight: 750;
+            letter-spacing: -0.04em;
+        }
+
+        .detalhe {
+            min-height: 1.25em;
+            margin-top: 8px;
+            color: var(--suave);
+            font-size: 0.9rem;
+        }
+
+        .graficos {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .grafico {
+            height: 360px;
+            padding: 22px;
+        }
+
+        .area-grafico {
+            position: relative;
+            height: 270px;
+        }
+
+        .grafico h2 {
+            margin: 0 0 16px;
+            font-size: 1.05rem;
+        }
+
+        .mensagem,
+        .aviso {
+            margin: 0 0 18px;
+            padding: 13px 16px;
+            border-radius: 12px;
+        }
+
+        .mensagem {
+            display: none;
+            border: 1px solid rgb(255 204 102 / 35%);
+            background: rgb(255 204 102 / 8%);
+            color: var(--alerta);
+        }
+
+        .aviso {
+            border: 1px solid rgb(85 185 243 / 35%);
+            background: rgb(85 185 243 / 10%);
+            color: #d7eef8;
+        }
+
+        .mapa {
+            margin-top: 16px;
+            padding: 22px;
+            border: 1px solid rgb(255 255 255 / 8%);
+            border-radius: 18px;
+            background: linear-gradient(145deg, var(--painel-claro), var(--painel));
+        }
+
+        .mapa h2 {
+            margin: 0 0 8px;
+            font-size: 1.05rem;
+        }
+
+        #mapa {
+            height: 380px;
+            margin-top: 16px;
+            border-radius: 12px;
+        }
+
+        .resultado-mapa {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .resultado-mapa p {
+            margin: 0;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgb(0 0 0 / 18%);
+        }
+
+        .resultado-mapa span {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--suave);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+        }
+
+        @media (max-width: 800px) {
+            header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .cards {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .graficos,
+            .resultado-mapa {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 520px) {
+            body {
+                padding: 22px 14px;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="dashboard">
+        <header>
+            <div>
+                <h1>Estação Meteorológica</h1>
+                <p class="subtitulo">Monitoramento ambiental em tempo real</p>
+            </div>
+            <div>
+                <div class="conexao">
+                    <span class="indicador" id="indicador"></span>
+                    <span id="estado">Aguardando dados</span>
+                </div>
+                <p class="atualizacao" id="atualizacao">Sem leitura válida</p>
+            </div>
+        </header>
+
+        <p class="aviso">
+            A pressão é medida pelo BMP180. O enunciado acadêmico cita BMP280;
+            os componentes não foram renomeados porque são sensores diferentes.
+        </p>
+        <p class="mensagem" id="mensagem" role="status"></p>
+
+        <section class="cards" aria-label="Última leitura">
+            <article class="card">
+                <p class="rotulo">Temperatura · DHT22</p>
+                <div class="valor" id="temperatura">--</div>
+                <div class="detalhe">Graus Celsius</div>
+            </article>
+            <article class="card">
+                <p class="rotulo">Umidade · DHT22</p>
+                <div class="valor" id="umidade">--</div>
+                <div class="detalhe">Umidade relativa</div>
+            </article>
+            <article class="card">
+                <p class="rotulo">Pressão · BMP180</p>
+                <div class="valor" id="pressao">--</div>
+                <div class="detalhe">BMP180 em hPa, sem altitude</div>
+            </article>
+            <article class="card">
+                <p class="rotulo">Qualidade do ar · MQ-135</p>
+                <div class="valor" id="mq135">--</div>
+                <div class="detalhe" id="mq135-status">Leitura ADC relativa</div>
+            </article>
+            <article class="card">
+                <p class="rotulo">Luminosidade · LDR</p>
+                <div class="valor" id="luminosidade">--</div>
+                <div class="detalhe" id="ldr-adc">Percentual relativo</div>
+            </article>
+            <article class="card">
+                <p class="rotulo">Precipitação</p>
+                <div class="valor" id="chuva">--</div>
+                <div class="detalhe">Acumulado desde o boot</div>
+            </article>
+        </section>
+
+        <section class="graficos" aria-label="Histórico recente">
+            <article class="grafico">
+                <h2>Temperatura e umidade</h2>
+                <div class="area-grafico"><canvas id="grafico-clima"></canvas></div>
+            </article>
+            <article class="grafico">
+                <h2>Pressão e luminosidade</h2>
+                <div class="area-grafico"><canvas id="grafico-ambiente"></canvas></div>
+            </article>
+        </section>
+
+        <section class="mapa" aria-label="Mapa demonstrativo">
+            <h2>Mapa demonstrativo e distância vetorial</h2>
+            <p class="subtitulo" id="aviso-mapa">
+                Carregando a coordenada ilustrativa.
+            </p>
+            <div id="mapa"></div>
+            <div class="resultado-mapa">
+                <p><span>Leste</span><strong id="vetor-leste">--</strong></p>
+                <p><span>Norte</span><strong id="vetor-norte">--</strong></p>
+                <p><span>Distância vetorial</span><strong id="distancia-vetorial">--</strong></p>
+                <p><span>Distância geográfica</span><strong id="distancia-geografica">--</strong></p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const elementos = {
+            indicador: document.getElementById("indicador"),
+            estado: document.getElementById("estado"),
+            atualizacao: document.getElementById("atualizacao"),
+            mensagem: document.getElementById("mensagem")
+        };
+        let graficoClima;
+        let graficoAmbiente;
+
+        function numero(valor, casas = 1) {
+            return Number(valor).toLocaleString("pt-BR", {
+                minimumFractionDigits: casas,
+                maximumFractionDigits: casas
+            });
+        }
+
+        function horario(timestamp) {
+            return new Date(timestamp).toLocaleString("pt-BR");
+        }
+
+        function definirEstado(tipo, texto, mensagem = "") {
+            elementos.indicador.className = `indicador ${tipo}`;
+            elementos.estado.textContent = texto;
+            elementos.mensagem.textContent = mensagem;
+            elementos.mensagem.style.display = mensagem ? "block" : "none";
+        }
+
+        function preencherCards(dados) {
+            document.getElementById("temperatura").textContent =
+                `${numero(dados.dht22_temp)} °C`;
+            document.getElementById("umidade").textContent =
+                `${numero(dados.dht22_umi)} %`;
+            document.getElementById("pressao").textContent =
+                `${numero(dados.pressao_hpa)} hPa`;
+            document.getElementById("mq135").textContent =
+                dados.mq135_valor;
+            document.getElementById("mq135-status").textContent =
+                `${dados.mq135_status} · ADC relativo`;
+            document.getElementById("luminosidade").textContent =
+                `${numero(dados.luminosidade)} %`;
+            document.getElementById("ldr-adc").textContent =
+                `ADC bruto: ${dados.ldr_valor}`;
+            document.getElementById("chuva").textContent =
+                `${numero(dados.chuva_mm, 2)} mm`;
+            elementos.atualizacao.textContent =
+                `Última leitura: ${horario(dados.timestamp)}`;
+        }
+
+        function opcoesGrafico() {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: {
+                        labels: { color: "#c8dce4" }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: "#9db5c1", maxTicksLimit: 7 },
+                        grid: { color: "rgba(255,255,255,.06)" }
+                    },
+                    y: {
+                        ticks: { color: "#9db5c1" },
+                        grid: { color: "rgba(255,255,255,.06)" }
+                    },
+                    y1: {
+                        position: "right",
+                        ticks: { color: "#9db5c1" },
+                        grid: { drawOnChartArea: false }
+                    }
+                }
+            };
+        }
+
+        function criarGraficos(leituras) {
+            if (typeof Chart === "undefined") {
+                return;
+            }
+
+            const rotulos = leituras.map(
+                item => new Date(item.timestamp).toLocaleTimeString("pt-BR")
+            );
+
+            graficoClima?.destroy();
+            graficoAmbiente?.destroy();
+
+            graficoClima = new Chart(
+                document.getElementById("grafico-clima"),
+                {
+                    type: "line",
+                    data: {
+                        labels: rotulos,
+                        datasets: [
+                            {
+                                label: "Temperatura (°C)",
+                                data: leituras.map(item => item.dht22_temp),
+                                borderColor: "#ff9e64",
+                                backgroundColor: "#ff9e64",
+                                tension: 0.3,
+                                yAxisID: "y"
+                            },
+                            {
+                                label: "Umidade (%)",
+                                data: leituras.map(item => item.dht22_umi),
+                                borderColor: "#55b9f3",
+                                backgroundColor: "#55b9f3",
+                                tension: 0.3,
+                                yAxisID: "y1"
+                            }
+                        ]
+                    },
+                    options: opcoesGrafico()
+                }
+            );
+
+            graficoAmbiente = new Chart(
+                document.getElementById("grafico-ambiente"),
+                {
+                    type: "line",
+                    data: {
+                        labels: rotulos,
+                        datasets: [
+                            {
+                                label: "Pressão (hPa)",
+                                data: leituras.map(item => item.pressao_hpa),
+                                borderColor: "#b692f6",
+                                backgroundColor: "#b692f6",
+                                tension: 0.3,
+                                yAxisID: "y"
+                            },
+                            {
+                                label: "Luminosidade (%)",
+                                data: leituras.map(item => item.luminosidade),
+                                borderColor: "#40c9a2",
+                                backgroundColor: "#40c9a2",
+                                tension: 0.3,
+                                yAxisID: "y1"
+                            }
+                        ]
+                    },
+                    options: opcoesGrafico()
+                }
+            );
+        }
+
+        async function buscarJson(url) {
+            const resposta = await fetch(url, { cache: "no-store" });
+            const dados = await resposta.json();
+
+            if (!resposta.ok) {
+                throw new Error(dados.erro || `Erro HTTP ${resposta.status}`);
+            }
+            return dados;
+        }
+
+        async function atualizarDados() {
+            try {
+                const [dados, historico] = await Promise.all([
+                    buscarJson("/api/dados"),
+                    buscarJson("/api/historico?limite=40")
+                ]);
+
+                preencherCards(dados);
+                criarGraficos(historico.leituras);
+                definirEstado("online", "Dados recebidos");
+            } catch (erro) {
+                definirEstado(
+                    "erro",
+                    "Dados indisponíveis",
+                    erro.message
+                );
+            }
+        }
+
+        function metros(valor) {
+            return `${numero(valor, 0)} m`;
+        }
+
+        async function iniciarMapa() {
+            if (typeof L === "undefined") {
+                document.getElementById("aviso-mapa").textContent =
+                    "O mapa não pôde ser carregado.";
+                return;
+            }
+
+            const estacao = await buscarJson("/api/estacao");
+            const centro = [estacao.latitude, estacao.longitude];
+            document.getElementById("aviso-mapa").textContent =
+                `${estacao.aviso} Clique no mapa para calcular a distância.`;
+
+            const mapa = L.map("mapa").setView(centro, 8);
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 18,
+                attribution: "&copy; OpenStreetMap"
+            }).addTo(mapa);
+            L.circleMarker(centro, {
+                radius: 8,
+                color: "#40c9a2",
+                fillOpacity: 0.9
+            }).addTo(mapa).bindPopup(estacao.nome);
+
+            let referencia;
+            mapa.on("click", async (evento) => {
+                const latitude = evento.latlng.lat;
+                const longitude = evento.latlng.lng;
+                referencia?.remove();
+                referencia = L.circleMarker([latitude, longitude], {
+                    radius: 7,
+                    color: "#55b9f3",
+                    fillOpacity: 0.9
+                }).addTo(mapa);
+
+                const resultado = await buscarJson(
+                    `/api/distancia?latitude=${latitude}&longitude=${longitude}`
+                );
+                document.getElementById("vetor-leste").textContent =
+                    metros(resultado.vetor_metros.leste);
+                document.getElementById("vetor-norte").textContent =
+                    metros(resultado.vetor_metros.norte);
+                document.getElementById("distancia-vetorial").textContent =
+                    metros(resultado.distancia_vetorial_m);
+                document.getElementById("distancia-geografica").textContent =
+                    metros(resultado.distancia_geografica_m);
+            });
+        }
+
+        atualizarDados();
+        setInterval(atualizarDados, 5000);
+        iniciarMapa().catch((erro) => {
+            document.getElementById("aviso-mapa").textContent = erro.message;
+        });
+    </script>
+</body>
+</html>

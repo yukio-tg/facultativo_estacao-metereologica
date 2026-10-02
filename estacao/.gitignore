@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+estacao.db
+estacao.db-shm
+estacao.db-wal
+.coverage
