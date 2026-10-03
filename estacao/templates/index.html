@@ -260,8 +260,7 @@
         </header>
 
         <p class="aviso">
-            A pressão é medida pelo BMP180. O enunciado acadêmico cita BMP280;
-            os componentes não foram renomeados porque são sensores diferentes.
+            A pressão é medida pelo BMP280.
         </p>
         <p class="mensagem" id="mensagem" role="status"></p>
 
@@ -277,9 +276,9 @@
                 <div class="detalhe">Umidade relativa</div>
             </article>
             <article class="card">
-                <p class="rotulo">Pressão · BMP180</p>
+                <p class="rotulo">Pressão · BMP280</p>
                 <div class="valor" id="pressao">--</div>
-                <div class="detalhe">BMP180 em hPa, sem altitude</div>
+                <div class="detalhe">BMP280 em hPa</div>
             </article>
             <article class="card">
                 <p class="rotulo">Qualidade do ar · MQ-135</p>
@@ -287,14 +286,9 @@
                 <div class="detalhe" id="mq135-status">Leitura ADC relativa</div>
             </article>
             <article class="card">
-                <p class="rotulo">Luminosidade · LDR</p>
+                <p class="rotulo">Luminosidade</p>
                 <div class="valor" id="luminosidade">--</div>
-                <div class="detalhe" id="ldr-adc">Percentual relativo</div>
-            </article>
-            <article class="card">
-                <p class="rotulo">Precipitação</p>
-                <div class="valor" id="chuva">--</div>
-                <div class="detalhe">Acumulado desde o boot</div>
+                <div class="detalhe">Sensor digital: claro ou escuro</div>
             </article>
         </section>
 
@@ -304,15 +298,15 @@
                 <div class="area-grafico"><canvas id="grafico-clima"></canvas></div>
             </article>
             <article class="grafico">
-                <h2>Pressão e luminosidade</h2>
+                <h2>Pressão atmosférica</h2>
                 <div class="area-grafico"><canvas id="grafico-ambiente"></canvas></div>
             </article>
         </section>
 
-        <section class="mapa" aria-label="Mapa demonstrativo">
-            <h2>Mapa demonstrativo e distância vetorial</h2>
+        <section class="mapa" aria-label="Mapa da estação">
+            <h2>Mapa da estação e distância vetorial</h2>
             <p class="subtitulo" id="aviso-mapa">
-                Carregando a coordenada ilustrativa.
+                Carregando a posição da estação.
             </p>
             <div id="mapa"></div>
             <div class="resultado-mapa">
@@ -364,11 +358,7 @@
             document.getElementById("mq135-status").textContent =
                 `${dados.mq135_status} · ADC relativo`;
             document.getElementById("luminosidade").textContent =
-                `${numero(dados.luminosidade)} %`;
-            document.getElementById("ldr-adc").textContent =
-                `ADC bruto: ${dados.ldr_valor}`;
-            document.getElementById("chuva").textContent =
-                `${numero(dados.chuva_mm, 2)} mm`;
+                dados.luminosidade_estado;
             elementos.atualizacao.textContent =
                 `Última leitura: ${horario(dados.timestamp)}`;
         }
@@ -456,14 +446,6 @@
                                 backgroundColor: "#b692f6",
                                 tension: 0.3,
                                 yAxisID: "y"
-                            },
-                            {
-                                label: "Luminosidade (%)",
-                                data: leituras.map(item => item.luminosidade),
-                                borderColor: "#40c9a2",
-                                backgroundColor: "#40c9a2",
-                                tension: 0.3,
-                                yAxisID: "y1"
                             }
                         ]
                     },
@@ -517,7 +499,7 @@
             document.getElementById("aviso-mapa").textContent =
                 `${estacao.aviso} Clique no mapa para calcular a distância.`;
 
-            const mapa = L.map("mapa").setView(centro, 8);
+            const mapa = L.map("mapa").setView(centro, 16);
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                 maxZoom: 18,
                 attribution: "&copy; OpenStreetMap"

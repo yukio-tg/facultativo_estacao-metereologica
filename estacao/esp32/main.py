@@ -20,7 +20,7 @@ def conectar_wifi(tentativas=20):
         print("Conectando ao Wi-Fi...")
         # No Wokwi estes valores funcionam. Na placa física, troque pelo
         # nome e pela senha da rede real. Não grave a senha em um repositório.
-        wifi.connect("Wokwi-GUEST", "")
+        wifi.connect("PENSAO1", "21211413")
 
         for _ in range(tentativas):
             if wifi.isconnected():
@@ -66,101 +66,83 @@ def conectar_mqtt():
 
 
 # ==============================================================================
-# DRIVER SIMPLIFICADO DO BMP180
-# O enunciado acadêmico cita BMP280. Este firmware mantém o BMP180 de propósito:
-# são sensores diferentes e o nome não pode ser apenas trocado.
+# DRIVER DO BMP280
+# O cálculo segue a compensação de temperatura e pressão da Bosch.
+# Endereços comuns: 0x76 e 0x77. O identificador do chip é 0x58.
 # ==============================================================================
 
-class BMP180:
-    def __init__(self, i2c, addr=0x77):
+def _inteiro_com_sinal(valor):
+    return valor - 65536 if valor > 32767 else valor
+
+
+class BMP280:
+    def __init__(self, i2c, addr):
         self.i2c = i2c
         self.addr = addr
-        self._read_calibration()
+        identificador = i2c.readfrom_mem(addr, 0xD0, 1)[0]
 
-    def _read_short(self, reg):
-        b = self.i2c.readfrom_mem(self.addr, reg, 2)
-        val = (b[0] << 8) | b[1]
-        return val - 65536 if val > 32767 else val
+        if identificador != 0x58:
+            raise OSError("chip I2C não é BMP280")
 
-    def _read_ushort(self, reg):
-        b = self.i2c.readfrom_mem(self.addr, reg, 2)
-        return (b[0] << 8) | b[1]
+        self._ler_calibracao()
+        i2c.writeto_mem(addr, 0xF4, b"\x27")
+        i2c.writeto_mem(addr, 0xF5, b"\xA0")
+        self.t_fine = 0
 
-    def _read_calibration(self):
-        self.AC1 = self._read_short(0xAA)
-        self.AC2 = self._read_short(0xAC)
-        self.AC3 = self._read_short(0xAE)
-        self.AC4 = self._read_ushort(0xB0)
-        self.AC5 = self._read_ushort(0xB2)
-        self.AC6 = self._read_ushort(0xB4)
-        self.B1 = self._read_short(0xB6)
-        self.B2 = self._read_short(0xB8)
-        self.MB = self._read_short(0xBA)
-        self.MC = self._read_short(0xBC)
-        self.MD = self._read_short(0xBE)
+    def _ler_calibracao(self):
+        cal = self.i2c.readfrom_mem(self.addr, 0x88, 24)
 
-    def read_raw_temperature(self):
-        self.i2c.writeto_mem(
-            self.addr,
-            0xF4,
-            bytearray([0x2E])
-        )
+        def u16(indice):
+            return cal[indice] | (cal[indice + 1] << 8)
 
-        time.sleep_ms(5)
+        def s16(indice):
+            return _inteiro_com_sinal(u16(indice))
 
-        return self._read_ushort(0xF6)
+        self.dig_T1 = u16(0)
+        self.dig_T2 = s16(2)
+        self.dig_T3 = s16(4)
+        self.dig_P1 = u16(6)
+        self.dig_P2 = s16(8)
+        self.dig_P3 = s16(10)
+        self.dig_P4 = s16(12)
+        self.dig_P5 = s16(14)
+        self.dig_P6 = s16(16)
+        self.dig_P7 = s16(18)
+        self.dig_P8 = s16(20)
+        self.dig_P9 = s16(22)
 
-    def read_raw_pressure(self):
-        self.i2c.writeto_mem(
-            self.addr,
-            0xF4,
-            bytearray([0x34])
-        )
+    def _compensar_temperatura(self, adc_t):
+        var1 = (adc_t / 16384.0 - self.dig_T1 / 1024.0) * self.dig_T2
+        var2 = adc_t / 131072.0 - self.dig_T1 / 8192.0
+        var2 = var2 * var2 * self.dig_T3
+        self.t_fine = var1 + var2
 
-        time.sleep_ms(5)
+    def _compensar_pressao(self, adc_p):
+        var1 = (self.t_fine / 2.0) - 64000.0
+        var2 = var1 * var1 * self.dig_P6 / 32768.0
+        var2 = var2 + var1 * self.dig_P5 * 2.0
+        var2 = (var2 / 4.0) + (self.dig_P4 * 65536.0)
+        var1 = (
+            self.dig_P3 * var1 * var1 / 524288.0
+            + self.dig_P2 * var1
+        ) / 524288.0
+        var1 = (1.0 + var1 / 32768.0) * self.dig_P1
 
-        b = self.i2c.readfrom_mem(
-            self.addr,
-            0xF6,
-            3
-        )
+        if var1 == 0:
+            return 0
 
-        return ((b[0] << 16) + (b[1] << 8) + b[2]) >> 8
+        pressao = 1048576.0 - adc_p
+        pressao = (pressao - (var2 / 4096.0)) * 6250.0 / var1
+        var1 = self.dig_P9 * pressao * pressao / 2147483648.0
+        var2 = pressao * self.dig_P8 / 32768.0
+        return pressao + (var1 + var2 + self.dig_P7) / 16.0
 
     def read_pressure(self):
-        UT = self.read_raw_temperature()
-        UP = self.read_raw_pressure()
-
-        X1 = ((UT - self.AC6) * self.AC5) >> 15
-        X2 = (self.MC << 11) // (X1 + self.MD)
-        B5 = X1 + X2
-
-        B6 = B5 - 4000
-
-        X1 = (self.B2 * (B6 * B6 >> 12)) >> 11
-        X2 = (self.AC2 * B6) >> 11
-        X3 = X1 + X2
-
-        B3 = (((self.AC1 * 4 + X3) << 0) + 2) >> 2
-
-        X1 = (self.AC3 * B6) >> 13
-        X2 = (self.B1 * (B6 * B6 >> 12)) >> 16
-        X3 = ((X1 + X2) + 2) >> 2
-
-        B4 = (self.AC4 * (X3 + 32768)) >> 15
-        B7 = (UP - B3) * 50000
-
-        if B7 < 0x80000000:
-            p = (B7 * 2) // B4
-        else:
-            p = (B7 // B4) * 2
-
-        X1 = (p >> 8) * (p >> 8)
-        X1 = (X1 * 3038) >> 16
-
-        X2 = (-7357 * p) >> 16
-
-        return (p + ((X1 + X2 + 3791) >> 4)) / 100.0
+        dados = self.i2c.readfrom_mem(self.addr, 0xF7, 6)
+        adc_p = (dados[0] << 12) | (dados[1] << 4) | (dados[2] >> 4)
+        adc_t = (dados[3] << 12) | (dados[4] << 4) | (dados[5] >> 4)
+        self._compensar_temperatura(adc_t)
+        return self._compensar_pressao(adc_p) / 100.0
 
 
 # ==============================================================================
@@ -177,68 +159,53 @@ if conectar_wifi():
 # CONFIGURAÇÃO DOS DISPOSITIVOS
 # ==============================================================================
 
-# 1. Barramento I2C compartilhado
-# OLED + BMP180
-i2c = machine.I2C(
-    0,
-    scl=machine.Pin(22),
-    sda=machine.Pin(21)
-)
+# 1. Barramento I2C
+# O OLED é opcional. A falha dele não pode apagar o barramento do BMP280.
+i2c = None
+oled = None
 
-
-# Display OLED
-oled = ssd1306.SSD1306_I2C(
-    128,
-    64,
-    i2c
-)
-
-
-# BMP180
 try:
-    bmp = BMP180(i2c)
-    bmp_disponivel = True
+    i2c = machine.I2C(
+        0,
+        scl=machine.Pin(22),
+        sda=machine.Pin(21),
+        freq=100000
+    )
+    print(
+        "Dispositivos I2C:",
+        [hex(endereco) for endereco in i2c.scan()]
+    )
 except Exception as erro:
-    print("Erro ao iniciar BMP180:", erro)
-    bmp_disponivel = False
+    print("Erro ao iniciar I2C:", erro)
+
+if i2c is not None:
+    try:
+        oled = ssd1306.SSD1306_I2C(
+            128,
+            64,
+            i2c
+        )
+    except Exception as erro:
+        print("OLED ausente; a estação continua sem display:", erro)
+        oled = None
 
 
-# 2. Configuração do Pluviômetro
-# GPIO 13 com Pull-up
+# BMP280
+bmp = None
+bmp_disponivel = False
 
-pino_pluviometro = machine.Pin(
-    13,
-    machine.Pin.IN,
-    machine.Pin.PULL_UP
-)
-
-contador_pulsos = 0
-mm_por_pulso = 0.25
-ultimo_tempo_pulso = 0
-
-
-def tratar_pulso(pino):
-    global contador_pulsos
-    global ultimo_tempo_pulso
-
-    tempo_atual = time.ticks_ms()
-
-    if time.ticks_diff(
-        tempo_atual,
-        ultimo_tempo_pulso
-    ) > 50:
-
-        contador_pulsos += 1
-        ultimo_tempo_pulso = tempo_atual
+if i2c is not None:
+    for endereco in (0x76, 0x77):
+        try:
+            bmp = BMP280(i2c, endereco)
+            bmp_disponivel = True
+            print("BMP280 encontrado em", hex(endereco))
+            break
+        except Exception as erro:
+            print("BMP280 não respondeu em", hex(endereco), ":", erro)
 
 
-pino_pluviometro.irq(
-    handler=tratar_pulso,
-    trigger=machine.Pin.IRQ_FALLING
-)
-
-
-# 3. Sensor DHT22
+# 2. Sensor DHT22
 # GPIO 14
 
 sensor_dht = dht.DHT22(
@@ -246,7 +213,7 @@ sensor_dht = dht.DHT22(
 )
 
 
-# 4. Sensor MQ-135
+# 3. Sensor MQ-135
 # GPIO 34
 
 mq135_adc = machine.ADC(
@@ -258,15 +225,14 @@ mq135_adc.atten(
 )
 
 
-# 5. Sensor LDR
-# GPIO 35
+# 4. Sensor digital de luminosidade
+# GPIO 35, somente entrada. O módulo informa claro ou escuro, não percentual.
+# Se o texto ficar invertido em relação ao ambiente, troque False por True.
+LUZ_INVERTIDA = False
 
-ldr_adc = machine.ADC(
-    machine.Pin(35)
-)
-
-ldr_adc.atten(
-    machine.ADC.ATTN_11DB
+sensor_luz = machine.Pin(
+    35,
+    machine.Pin.IN
 )
 
 
@@ -288,9 +254,7 @@ umi = 0.0
 pressao = 0.0
 
 valor_mq135 = 0
-
-valor_ldr = 0
-porcentagem_luz = 0.0
+estado_luz = "Escuro"
 
 
 # ==============================================================================
@@ -301,11 +265,11 @@ print("")
 print("==========================================")
 print(" ESTAÇÃO METEOROLÓGICA COMPLETA")
 print("==========================================")
-print("Pluviômetro: GPIO 13")
 print("DHT22: GPIO 14")
 print("MQ-135: GPIO 34 (ADC)")
-print("LDR: GPIO 35 (ADC)")
-print("OLED + BMP180: GPIOs 21 (SDA) e 22 (SCL)")
+print("Luz digital: GPIO 35 (claro ou escuro)")
+print("BMP280: GPIOs 21 (SDA) e 22 (SCL)")
+print("OLED: opcional, no mesmo I2C")
 print("MQTT:", MQTT_BROKER)
 print("Tópico:", MQTT_TOPICO)
 print("==========================================")
@@ -357,7 +321,7 @@ while True:
 
 
         # ----------------------------------------------------------------------
-        # BMP180
+        # BMP280
         # ----------------------------------------------------------------------
 
         if bmp_disponivel:
@@ -365,8 +329,8 @@ while True:
             try:
                 pressao = bmp.read_pressure()
 
-            except Exception:
-                print("Erro na leitura do BMP180")
+            except Exception as erro:
+                print("Erro na leitura do BMP280:", erro)
 
 
         # ----------------------------------------------------------------------
@@ -377,14 +341,15 @@ while True:
 
 
         # ----------------------------------------------------------------------
-        # LDR
+        # Luminosidade digital
         # ----------------------------------------------------------------------
 
-        valor_ldr = ldr_adc.read()
+        nivel_luz = sensor_luz.value()
 
-        porcentagem_luz = (
-            valor_ldr / 4095.0
-        ) * 100.0
+        if LUZ_INVERTIDA:
+            nivel_luz = 0 if nivel_luz else 1
+
+        estado_luz = "Claro" if nivel_luz else "Escuro"
 
 
         ultimo_tempo_leitura = tempo_atual
@@ -398,9 +363,6 @@ while True:
         tempo_atual,
         ultimo_tempo_mqtt
     ) > 5000:
-
-        total_mm = contador_pulsos * mm_por_pulso
-
 
         # ----------------------------------------------------------------------
         # CLASSIFICAÇÃO DO AR
@@ -426,9 +388,7 @@ while True:
             "pressao_hpa": pressao,
             "mq135_valor": valor_mq135,
             "mq135_status": status_ar,
-            "ldr_valor": valor_ldr,
-            "luminosidade": porcentagem_luz,
-            "chuva_mm": total_mm
+            "luminosidade_estado": estado_luz
         }
 
 
@@ -443,7 +403,10 @@ while True:
         # PUBLICAR NO MQTT
         # ----------------------------------------------------------------------
 
-        if cliente_mqtt is None:
+        if not bmp_disponivel or pressao <= 0:
+            print("BMP280 sem leitura válida: MQTT não enviado.")
+            ultimo_tempo_mqtt = tempo_atual
+        elif cliente_mqtt is None:
             print("MQTT offline: leitura não enviada.")
         else:
             try:
@@ -484,7 +447,7 @@ while True:
 
         modo_tela = (
             modo_tela + 1
-        ) % 5
+        ) % 4
 
         tempo_alternar_tela = tempo_atual
 
@@ -493,49 +456,18 @@ while True:
     # ATUALIZAÇÃO DO DISPLAY OLED
     # ==========================================================================
 
+    if oled is None:
+        time.sleep_ms(100)
+        continue
+
     oled.fill(0)
 
 
     # --------------------------------------------------------------------------
-    # TELA 0 - PLUVIÔMETRO
+    # TELA 0 - DHT22
     # --------------------------------------------------------------------------
 
     if modo_tela == 0:
-
-        oled.text(
-            "   PLUVIOMETRO  ",
-            0,
-            0
-        )
-
-        oled.text(
-            "----------------",
-            0,
-            10
-        )
-
-        total_mm = (
-            contador_pulsos * mm_por_pulso
-        )
-
-        oled.text(
-            f"Chuva:  {total_mm:.2f} mm",
-            0,
-            32
-        )
-
-        oled.text(
-            f"Pulsos: {contador_pulsos}",
-            0,
-            48
-        )
-
-
-    # --------------------------------------------------------------------------
-    # TELA 1 - DHT22
-    # --------------------------------------------------------------------------
-
-    elif modo_tela == 1:
 
         oled.text(
             " ESTACAO CLIMA  ",
@@ -563,13 +495,13 @@ while True:
 
 
     # --------------------------------------------------------------------------
-    # TELA 2 - BMP180
+    # TELA 1 - BMP280
     # --------------------------------------------------------------------------
 
-    elif modo_tela == 2:
+    elif modo_tela == 1:
 
         oled.text(
-            "BAROMETRO BMP180",
+            "BAROMETRO BMP280",
             0,
             0
         )
@@ -604,10 +536,10 @@ while True:
 
 
     # --------------------------------------------------------------------------
-    # TELA 3 - MQ-135
+    # TELA 2 - MQ-135
     # --------------------------------------------------------------------------
 
-    elif modo_tela == 3:
+    elif modo_tela == 2:
 
         oled.text(
             " QUALIDADE DO AR",
@@ -644,10 +576,10 @@ while True:
 
 
     # --------------------------------------------------------------------------
-    # TELA 4 - LDR
+    # TELA 3 - LUZ DIGITAL
     # --------------------------------------------------------------------------
 
-    elif modo_tela == 4:
+    elif modo_tela == 3:
 
         oled.text(
             "  LUMINOSIDADE  ",
@@ -662,15 +594,9 @@ while True:
         )
 
         oled.text(
-            f"ADC: {valor_ldr}",
+            estado_luz,
             0,
-            28
-        )
-
-        oled.text(
-            f"Luz: {porcentagem_luz:.1f}%",
-            0,
-            46
+            32
         )
 
 

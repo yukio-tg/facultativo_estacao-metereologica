@@ -5,16 +5,16 @@ class GeoError(ValueError):
     """Coordenada inadequada para o cálculo geográfico."""
 
 
-# Coordenada usada somente para demonstrar o mapa e a Geometria Analítica.
-# Ela não foi medida em campo e não representa a posição real da estação.
-PONTO_DEMONSTRATIVO = {
-    "nome": "Ponto demonstrativo",
-    "latitude": -15.0,
-    "longitude": -47.0,
-    "sensor_pressao": "BMP180",
+# Posição fixa informada para o local onde a estação está instalada.
+# Não veio de um módulo GPS.
+PONTO_ESTACAO = {
+    "nome": "Estação meteorológica",
+    "latitude": -23.564978600650882,
+    "longitude": -46.65086234823989,
+    "sensor_pressao": "BMP280",
     "aviso": (
-        "Coordenada ilustrativa. Não é a localização medida da estação. "
-        "A pressão vem do BMP180; o enunciado acadêmico cita BMP280."
+        "Posição fixa informada para a instalação da estação. "
+        "Não foi obtida por GPS. A pressão vem do BMP280."
     ),
 }
 
@@ -38,8 +38,8 @@ def calcular_distancia(latitude, longitude):
     """Calcula o vetor local e a distância até o ponto demonstrativo."""
     latitude = _coordenada(latitude, -90, 90, "latitude")
     longitude = _coordenada(longitude, -180, 180, "longitude")
-    origem_lat = PONTO_DEMONSTRATIVO["latitude"]
-    origem_lon = PONTO_DEMONSTRATIVO["longitude"]
+    origem_lat = PONTO_ESTACAO["latitude"]
+    origem_lon = PONTO_ESTACAO["longitude"]
 
     norte_m = (latitude - origem_lat) * METROS_POR_GRAU_LATITUDE
     metros_por_grau_lon = (
@@ -62,7 +62,7 @@ def calcular_distancia(latitude, longitude):
     )
 
     return {
-        "ponto_estacao": PONTO_DEMONSTRATIVO,
+        "ponto_estacao": PONTO_ESTACAO,
         "ponto_referencia": {
             "latitude": latitude,
             "longitude": longitude,
@@ -73,5 +73,5 @@ def calcular_distancia(latitude, longitude):
         },
         "distancia_vetorial_m": distancia_vetorial_m,
         "distancia_geografica_m": distancia_geografica_m,
-        "aviso": PONTO_DEMONSTRATIVO["aviso"],
+        "aviso": PONTO_ESTACAO["aviso"],
     }

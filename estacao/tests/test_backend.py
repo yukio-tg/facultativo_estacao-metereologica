@@ -10,21 +10,18 @@ from database import (
     obter_historico,
     obter_ultima_leitura,
 )
-from geo import PONTO_DEMONSTRATIVO, calcular_distancia
+from geo import PONTO_ESTACAO, calcular_distancia
 from validation import ValidationError, validar_payload
 
 
 def payload_valido(**alteracoes):
-    ldr = alteracoes.pop("ldr_valor", 2048)
     dados = {
         "dht22_temp": 24.5,
         "dht22_umi": 61.0,
         "pressao_hpa": 1012.4,
         "mq135_valor": 843,
         "mq135_status": "Ar Limpo",
-        "ldr_valor": ldr,
-        "luminosidade": (ldr / 4095.0) * 100.0,
-        "chuva_mm": 1.25,
+        "luminosidade_estado": "Claro",
     }
     dados.update(alteracoes)
     return dados
@@ -61,13 +58,13 @@ class TestValidacao(unittest.TestCase):
                 payload_valido(mq135_status="Ar Poluido")
             )
 
-    def test_rejeita_luminosidade_incompativel_com_ldr(self):
-        with self.assertRaisesRegex(ValidationError, "não corresponde"):
-            validar_payload(payload_valido(luminosidade=10))
+    def test_rejeita_estado_de_luz_desconhecido(self):
+        with self.assertRaisesRegex(ValidationError, "luminosidade_estado"):
+            validar_payload(payload_valido(luminosidade_estado="lux"))
 
-    def test_rejeita_chuva_fora_do_passo_do_pluviometro(self):
-        with self.assertRaisesRegex(ValidationError, "múltiplo"):
-            validar_payload(payload_valido(chuva_mm=1.1))
+    def test_rejeita_precipitacao_no_payload(self):
+        with self.assertRaisesRegex(ValidationError, "desconhecidos"):
+            validar_payload(payload_valido(chuva_mm=1.25))
 
 
 class TestBancoEApi(unittest.TestCase):
@@ -146,8 +143,8 @@ class TestBancoEApi(unittest.TestCase):
 class TestGeometria(unittest.TestCase):
     def test_distancia_no_proprio_ponto_e_zero(self):
         resultado = calcular_distancia(
-            PONTO_DEMONSTRATIVO["latitude"],
-            PONTO_DEMONSTRATIVO["longitude"]
+            PONTO_ESTACAO["latitude"],
+            PONTO_ESTACAO["longitude"]
         )
 
         self.assertEqual(resultado["distancia_vetorial_m"], 0)
@@ -155,8 +152,8 @@ class TestGeometria(unittest.TestCase):
 
     def test_deslocamento_para_norte(self):
         resultado = calcular_distancia(
-            PONTO_DEMONSTRATIVO["latitude"] + 1,
-            PONTO_DEMONSTRATIVO["longitude"]
+            PONTO_ESTACAO["latitude"] + 1,
+            PONTO_ESTACAO["longitude"]
         )
 
         self.assertGreater(resultado["vetor_metros"]["norte"], 100_000)
@@ -174,7 +171,7 @@ class TestGeometria(unittest.TestCase):
 
             self.assertEqual(cliente.get("/api/estacao").status_code, 200)
             self.assertIn(
-                "ilustrativa",
+                "Posição fixa",
                 cliente.get("/api/estacao").get_json()["aviso"]
             )
             self.assertEqual(

@@ -13,9 +13,12 @@ CAMPOS_ESPERADOS = {
     "pressao_hpa",
     "mq135_valor",
     "mq135_status",
-    "ldr_valor",
-    "luminosidade",
-    "chuva_mm",
+    "luminosidade_estado",
+}
+
+ESTADOS_LUZ = {
+    "Claro",
+    "Escuro",
 }
 
 STATUS_AR = {
@@ -101,9 +104,7 @@ def validar_payload(payload):
     umidade = _numero(dados, "dht22_umi", 0, 100)
     pressao = _numero(dados, "pressao_hpa", 300, 1100)
     mq135 = _adc(dados, "mq135_valor")
-    ldr = _adc(dados, "ldr_valor")
-    luminosidade = _numero(dados, "luminosidade", 0, 100)
-    chuva = _numero(dados, "chuva_mm", 0, 10000)
+    estado_luz = dados["luminosidade_estado"]
     status = dados["mq135_status"]
 
     if status not in STATUS_AR:
@@ -112,23 +113,8 @@ def validar_payload(payload):
     if status != _status_esperado(mq135):
         raise ValidationError("mq135_status não corresponde ao valor ADC")
 
-    luminosidade_calculada = (ldr / 4095.0) * 100.0
-    if not math.isclose(
-        luminosidade,
-        luminosidade_calculada,
-        abs_tol=0.15
-    ):
-        raise ValidationError(
-            "luminosidade não corresponde ao ADC do LDR"
-        )
-
-    pulsos_estimados = chuva / 0.25
-    if not math.isclose(
-        pulsos_estimados,
-        round(pulsos_estimados),
-        abs_tol=1e-6
-    ):
-        raise ValidationError("chuva_mm deve ser múltiplo de 0.25")
+    if estado_luz not in ESTADOS_LUZ:
+        raise ValidationError("luminosidade_estado deve ser Claro ou Escuro")
 
     return {
         "dht22_temp": temperatura,
@@ -136,7 +122,5 @@ def validar_payload(payload):
         "pressao_hpa": pressao,
         "mq135_valor": mq135,
         "mq135_status": status,
-        "ldr_valor": ldr,
-        "luminosidade": luminosidade,
-        "chuva_mm": chuva,
+        "luminosidade_estado": estado_luz,
     }

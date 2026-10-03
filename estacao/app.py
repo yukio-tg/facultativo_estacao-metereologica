@@ -9,7 +9,7 @@ from database import (
     obter_historico,
     obter_ultima_leitura,
 )
-from geo import PONTO_DEMONSTRATIVO, GeoError, calcular_distancia
+from geo import PONTO_ESTACAO, GeoError, calcular_distancia
 from mqtt_service import MQTTService
 
 
@@ -60,7 +60,7 @@ def create_app(db_path=None):
 
     @app.route("/api/estacao")
     def estacao():
-        return jsonify(PONTO_DEMONSTRATIVO)
+        return jsonify(PONTO_ESTACAO)
 
     @app.route("/api/distancia")
     def distancia():

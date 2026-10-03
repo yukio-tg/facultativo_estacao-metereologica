@@ -18,9 +18,7 @@ CAMPOS_LEITURA = (
     "pressao_hpa",
     "mq135_valor",
     "mq135_status",
-    "ldr_valor",
-    "luminosidade",
-    "chuva_mm",
+    "luminosidade_estado",
 )
 
 
@@ -38,6 +36,14 @@ def inicializar_banco(caminho=None):
     with closing(_conectar(caminho)) as conexao:
         with conexao:
             conexao.execute("PRAGMA journal_mode = WAL").fetchone()
+            colunas = [
+                linha[1]
+                for linha in conexao.execute("PRAGMA table_info(leituras)")
+            ]
+            if colunas and "luminosidade_estado" not in colunas:
+                conexao.execute(
+                    "ALTER TABLE leituras RENAME TO leituras_modelo_anterior"
+                )
             conexao.execute(
                 """
                 CREATE TABLE IF NOT EXISTS leituras (
@@ -48,9 +54,7 @@ def inicializar_banco(caminho=None):
                     pressao_hpa REAL NOT NULL,
                     mq135_valor INTEGER NOT NULL,
                     mq135_status TEXT NOT NULL,
-                    ldr_valor INTEGER NOT NULL,
-                    luminosidade REAL NOT NULL,
-                    chuva_mm REAL NOT NULL
+                    luminosidade_estado TEXT NOT NULL
                 )
                 """
             )
@@ -81,10 +85,8 @@ def inserir_leitura(dados, caminho=None, timestamp=None):
                     pressao_hpa,
                     mq135_valor,
                     mq135_status,
-                    ldr_valor,
-                    luminosidade,
-                    chuva_mm
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    luminosidade_estado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 valores
             )
