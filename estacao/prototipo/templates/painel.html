@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estação Meteorológica</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 20px; background: #10202c; color: #eef; font-family: Arial, sans-serif; }
+        main { max-width: 1000px; margin: auto; }
+        .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+        .caixa { background: #1b3444; border-radius: 10px; padding: 16px; }
+        .caixa small { color: #9bb; }
+        .valor { font-size: 1.8rem; font-weight: bold; margin: 8px 0; }
+        .grafico { height: 220px; }
+        #mapa { height: 350px; border-radius: 10px; }
+        #situacao { color: #fc6; }
+        h2 { margin: 24px 0 10px; font-size: 1.1rem; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Estação Meteorológica</h1>
+    <p id="situacao">Aguardando dados...</p>
+
+    <div class="grade">
+        <div class="caixa"><small>Temperatura (DHT22)</small><div class="valor" id="temp">--</div></div>
+        <div class="caixa"><small>Umidade (DHT22)</small><div class="valor" id="umi">--</div></div>
+        <div class="caixa"><small>Pressão (BMP280)</small><div class="valor" id="pressao">--</div></div>
+        <div class="caixa"><small>Qualidade do ar (MQ-135)</small><div class="valor" id="ar">--</div><small id="ar-status"></small></div>
+        <div class="caixa"><small>Luminosidade</small><div class="valor" id="luz">--</div></div>
+    </div>
+
+    <h2>Histórico recente</h2>
+    <div class="grade">
+        <div class="caixa grafico"><canvas id="g-temp"></canvas></div>
+        <div class="caixa grafico"><canvas id="g-umi"></canvas></div>
+        <div class="caixa grafico"><canvas id="g-pressao"></canvas></div>
+    </div>
+
+    <h2>Mapa da estação</h2>
+    <p>Clique no mapa para ver o vetor e a distância até a estação.</p>
+    <div id="mapa"></div>
+    <p id="distancia"></p>
+</main>
+
+<script>
+    const ESTACAO = {{ estacao | tojson }};
+
+    // ---------- Gráficos ----------
+    function novoGrafico(id, titulo, cor) {
+        return new Chart(document.getElementById(id), {
+            type: "line",
+            data: { labels: [], datasets: [{ label: titulo, data: [], borderColor: cor }] },
+            options: { maintainAspectRatio: false, animation: false }
+        });
+    }
+    const graficos = {
+        dht22_temp: novoGrafico("g-temp", "Temperatura (°C)", "orange"),
+        dht22_umi: novoGrafico("g-umi", "Umidade (%)", "deepskyblue"),
+        pressao_hpa: novoGrafico("g-pressao", "Pressão (hPa)", "violet")
+    };
+
+    // ---------- Atualização a cada 5 segundos ----------
+    async function atualizar() {
+        try {
+            const resposta = await fetch("/api/dados");
+            const d = await resposta.json();
+            if (!resposta.ok) throw new Error(d.erro);
+
+            document.getElementById("temp").textContent = d.dht22_temp.toFixed(1) + " °C";
+            document.getElementById("umi").textContent = d.dht22_umi.toFixed(1) + " %";
+            document.getElementById("pressao").textContent = d.pressao_hpa.toFixed(1) + " hPa";
+            document.getElementById("ar").textContent = d.mq135_valor;
+            document.getElementById("ar-status").textContent = d.mq135_status;
+            document.getElementById("luz").textContent = d.luminosidade_estado;
+            document.getElementById("situacao").textContent =
+                "Última leitura: " + new Date(d.timestamp).toLocaleString("pt-BR");
+
+            const historico = await (await fetch("/api/historico")).json();
+            const horarios = historico.map(l => new Date(l.timestamp).toLocaleTimeString("pt-BR"));
+            for (const campo in graficos) {
+                graficos[campo].data.labels = horarios;
+                graficos[campo].data.datasets[0].data = historico.map(l => l[campo]);
+                graficos[campo].update();
+            }
+        } catch (erro) {
+            document.getElementById("situacao").textContent = "Sem dados: " + erro.message;
+        }
+    }
+    atualizar();
+    setInterval(atualizar, 5000);
+
+    // ---------- Mapa e geometria analítica ----------
+    const centro = [ESTACAO.latitude, ESTACAO.longitude];
+    const mapa = L.map("mapa").setView(centro, 16);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap"
+    }).addTo(mapa);
+    L.marker(centro).addTo(mapa).bindPopup("Estação meteorológica");
+
+    let ponto;
+    mapa.on("click", (e) => {
+        // Converte a diferença de graus em metros (aproximação para distâncias curtas).
+        const norte = (e.latlng.lat - ESTACAO.latitude) * 111320;
+        const leste = (e.latlng.lng - ESTACAO.longitude) * 111320 * Math.cos(ESTACAO.latitude * Math.PI / 180);
+        const distancia = Math.sqrt(leste * leste + norte * norte);
+
+        if (ponto) ponto.remove();
+        ponto = L.circleMarker(e.latlng, { radius: 7 }).addTo(mapa);
+        document.getElementById("distancia").textContent =
+            `Vetor: (${leste.toFixed(0)} m leste, ${norte.toFixed(0)} m norte) · Distância: ${distancia.toFixed(0)} m`;
+    });
+</script>
+</body>
+</html>

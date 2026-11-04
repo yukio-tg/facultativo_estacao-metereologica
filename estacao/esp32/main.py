@@ -20,7 +20,7 @@ def conectar_wifi(tentativas=20):
         print("Conectando ao Wi-Fi...")
         # No Wokwi estes valores funcionam. Na placa física, troque pelo
         # nome e pela senha da rede real. Não grave a senha em um repositório.
-        wifi.connect("PENSAO1", "21211413")
+        wifi.connect("Wokwi-GUEST", "")
 
         for _ in range(tentativas):
             if wifi.isconnected():

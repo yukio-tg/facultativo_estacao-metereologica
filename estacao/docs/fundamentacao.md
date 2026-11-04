@@ -1,8 +1,7 @@
 # Fundamentação do protótipo
 
-Este texto registra o conteúdo acadêmico pedido para a estação meteorológica.
-Ele descreve o que o protótipo faz hoje e também o que ainda não foi validado
-na placa física.
+Resumo da base teórica da estação meteorológica e de como cada conceito
+aparece no projeto.
 
 ## 3.1 Contextualização e justificativa
 
@@ -11,110 +10,133 @@ moradores e da gestão pública. A Internet das Coisas permite que objetos
 simples, como uma estação meteorológica, meçam o ambiente e publiquem essas
 medições por uma rede.
 
-Temperatura, umidade, pressão, qualidade relativa do ar, luminosidade e chuva
-ajudam a perceber calor, risco de precipitação e condições do entorno. Uma
-estação de baixo custo não substitui um instituto meteorológico, mas torna
-visível a condição de um ponto específico. A transparência importa porque a
-comunidade consegue consultar o mesmo dado usado para uma decisão, em vez de
-depender apenas de um valor anunciado sem origem.
+Temperatura, umidade, pressão, qualidade relativa do ar e luminosidade ajudam
+a perceber calor, mudanças de tempo e condições do entorno. Uma estação de
+baixo custo não substitui um instituto meteorológico, mas torna visível a
+condição de um ponto específico e pode ser replicada em vários locais. Quando
+os dados ficam abertos, a comunidade consulta a mesma informação usada para uma
+decisão.
 
 ## 3.2 Objetivo geral
 
 Desenvolver e validar uma estação que integra ESP32, transmissão Wi-Fi/MQTT,
-validação em Python, armazenamento SQLite, API Flask e dashboard web.
+conferência dos dados em Python, armazenamento SQLite, API Flask e painel web.
 
 ## 3.3 Objetivos específicos e situação atual
 
 | Objetivo | Situação |
 |---|---|
-| Circuito com ESP32, DHT22, BMP280, MQ-135, LDR e pluviômetro | Parcial: o circuito do Wokwi usa BMP180, não BMP280 |
-| Firmware com leitura, tratamento e MQTT | Implementado; execução no Wokwi e na placa ainda não comprovada aqui |
-| API Python com recepção, validação e armazenamento | Implementado e testado no computador |
-| Banco relacional | Implementado em SQLite |
-| Interface pública, responsiva, com mapa e gráficos | Interface e gráficos implementados; mapa usa ponto demonstrativo; publicação na internet não foi feita |
-| Scrum/Kanban | Kanban abaixo registra o trabalho real |
+| Circuito com ESP32 e sensores ambientais | Montado com DHT22, BMP280, MQ-135 e sensor de luz digital. O pluviômetro foi retirado do escopo do protótipo |
+| Firmware com leitura, tratamento e MQTT | Funcionando na placa física, com início automático ao ligar |
+| Servidor Python com recepção, conferência e armazenamento | Funcionando; leituras reais da placa foram recebidas e gravadas |
+| Banco relacional | SQLite, tabela `leituras` |
+| Interface com mapa e gráficos | Painel com cards, gráficos, mapa da posição fixa e cálculo de vetor e distância. Roda no computador do grupo, ainda sem hospedagem pública |
+| Organização do trabalho | Kanban abaixo |
 
 ## 3.4 Termos-chave
 
-- **Firmware:** programa que roda dentro do microcontrolador. Aqui é `esp32/main.py`.
-- **Telemetria:** envio de medições para outro sistema. Aqui ocorre a cada cinco segundos.
-- **ESP32:** microcontrolador com Wi-Fi, GPIO, ADC e I2C.
-- **MQTT:** protocolo em que um dispositivo publica mensagens e outro as recebe por meio de um intermediário.
-- **API RESTful:** conjunto de endereços HTTP que devolvem dados. Exemplos: `/api/dados` e `/api/historico`.
+- **Firmware:** programa que roda dentro do microcontrolador (`main.py`).
+- **Telemetria:** envio automático de medições para outro sistema, aqui a cada
+  cinco segundos.
+- **ESP32:** microcontrolador com Wi-Fi, pinos digitais (GPIO), conversor
+  analógico-digital (ADC) e barramento I2C.
+- **MQTT:** protocolo em que um dispositivo publica mensagens em um tópico e
+  outro as recebe por meio de um intermediário (broker).
+- **API RESTful:** endereços HTTP que devolvem dados, como `/api/dados` e
+  `/api/historico`.
 - **Payload:** conteúdo da mensagem MQTT, neste projeto um objeto JSON.
-- **Geolocalização vetorial:** representação de um deslocamento por componentes leste e norte, em metros, a partir de um ponto de origem.
+- **Geolocalização vetorial:** deslocamento representado por componentes
+  leste e norte, em metros, a partir da posição da estação.
 
 ## Arquitetura em camadas
 
-- **Percepção:** DHT22, BMP180, MQ-135, LDR e pluviômetro ligados ao ESP32.
+- **Percepção:** DHT22, BMP280, MQ-135 e sensor de luz ligados ao ESP32.
 - **Rede:** Wi-Fi até o broker HiveMQ, no tópico `universidade/sensores/estacao`.
-- **Aplicação:** Python valida e grava; Flask entrega; o navegador apresenta cards, gráficos e mapa.
+- **Aplicação:** Python confere e grava; Flask entrega; o navegador apresenta
+  cards, gráficos e mapa.
 
 ## Sensores e eletrônica
 
-O DHT22 entrega sinais digitais de temperatura e umidade no GPIO 14. O BMP180
-mede pressão por I2C nos GPIO 21 e 22. O enunciado pede BMP280, que também
-mede pressão e permite estimar altitude, mas é outro componente e usa outro
-driver. Por decisão do projeto, o BMP180 foi mantido e a divergência ficou
-visível no código, no dashboard e neste texto. Não há altitude calculada.
+O DHT22 entrega temperatura e umidade por um sinal digital no GPIO 14. O
+BMP280 mede pressão e conversa com o ESP32 pelo barramento I2C (SDA no GPIO 21
+e SCL no GPIO 22). Cada BMP280 traz números de calibração gravados de fábrica,
+que o firmware lê e usa na fórmula do fabricante para obter a pressão em hPa.
+Em São Paulo a leitura fica perto de 930 hPa, porque a cidade está a cerca de
+760 m de altitude e o valor não é convertido para o nível do mar.
 
-O MQ-135 é lido como ADC no GPIO 34. O resultado é um número relativo e uma
-classificação qualitativa, não concentração em ppm. O LDR entra pelo ADC do
-GPIO 35 e vira percentual relativo, não lux. O pluviômetro é um contato no
-GPIO 13: cada pulso válido soma 0,25 mm ao acumulado desde a inicialização.
+O MQ-135 é lido pelo ADC no GPIO 34. O ADC transforma a tensão contínua do
+sensor em um número de 0 a 4095. Esse número é relativo, não é concentração em
+ppm, e recebe uma classificação: Ar Limpo, Ar Moderado ou Ar Poluido.
 
-Sinais analógicos variam continuamente e passam pelo ADC. Sinais digitais
-representam estados, como o pulso do pluviômetro. O debounce de 50 ms é uma
-condição lógica: um novo pulso só conta se o intervalo desde o anterior for
-maior que 50 ms. A validação do backend também é lógica: o valor precisa ser
-numérico, finito e estar dentro da faixa antes de existir uma gravação.
+O sensor de luz é digital: o módulo entrega apenas dois estados, alto ou
+baixo, conforme a luz esteja acima ou abaixo do limite do próprio módulo. O firmware lê o GPIO 35 e traduz
+para Claro ou Escuro.
+
+Essa diferença ilustra os dois tipos de sinal. Um sinal analógico, como o do
+MQ-135, varia continuamente e precisa do ADC. Um sinal digital, como o do
+sensor de luz, tem apenas dois níveis lógicos e é lido diretamente.
+
+## Lógica aplicada aos dados
+
+Antes de gravar, o servidor avalia proposições lógicas sobre cada mensagem. A
+leitura só é aceita se todas forem verdadeiras (operação E):
+
+- a mensagem tem exatamente os seis campos esperados;
+- os valores numéricos são números;
+- −40 ≤ temperatura ≤ 80 °C;
+- 0 ≤ umidade ≤ 100 %;
+- 300 ≤ pressão ≤ 1100 hPa;
+- 0 ≤ valor do MQ-135 ≤ 4095;
+- o status do ar corresponde ao valor do MQ-135;
+- a luminosidade é Claro ou Escuro.
+
+Se qualquer condição for falsa, a mensagem é descartada e o motivo aparece no
+terminal.
 
 ## Backend
 
-O subscriber recebe o payload, `validar_payload` aplica as regras e
-`inserir_leitura` grava uma linha com data e hora UTC. A API consulta essa
-tabela. Coleções Python, principalmente dicionários e listas, representam a
-mensagem e o histórico.
+O servidor recebe o JSON, transforma em dicionário Python, confere e grava uma
+linha no SQLite com data e hora UTC. A API consulta essa tabela. Dicionários
+representam cada leitura e listas representam o histórico.
 
-## Geometria
+## Geometria analítica
 
-O mapa usa o ponto ilustrativo de latitude -15 e longitude -47. Ele não é a
-posição medida da estação. Ao clicar em outro ponto, a API calcula:
+A estação está em um ponto fixo informado pelo grupo: latitude
+-23,564978600650882 e longitude -46,65086234823989. Ao clicar em outro ponto do
+mapa, o painel calcula:
 
-- componente norte, pela diferença de latitude;
-- componente leste, pela diferença de longitude corrigida pelo cosseno da
-  latitude de origem;
-- distância vetorial, pela hipotenusa desses componentes;
-- distância geográfica, pela fórmula de haversine.
+- componente norte = Δlatitude × 111.320 m;
+- componente leste = Δlongitude × 111.320 m × cos(latitude da estação);
+- distância = √(leste² + norte²), o módulo do vetor.
+
+O cosseno corrige o fato de os meridianos se aproximarem longe do Equador. A
+versão completa do servidor também calcula a distância geográfica pela fórmula
+de haversine, que considera a curvatura da Terra.
 
 ## Kanban do trabalho realizado
 
-| A fazer | Em andamento | Concluído no computador |
+| A fazer | Em andamento | Concluído |
 |---|---|---|
-| Executar o circuito no Wokwi | — | Firmware, MQTT, validação, SQLite, API, gráficos e mapa demonstrativo |
-| Testar a placa física | — | Testes automatizados e publicação MQTT de teste |
-| Trocar para BMP280, se for exigido | — | Divergência BMP180 documentada |
-
-Não houve uma equipe Scrum separada nem sprints formais. O quadro registra a
-sequência real do protótipo.
+| Hospedar o painel na internet | Documentação final | Firmware na placa física com início automático |
+| Calibrar MQ-135 e conferir pressão com uma referência | — | Troca do BMP180 pelo BMP280 |
+| — | — | Servidor, banco, API, painel e mapa |
+| — | — | Versão simplificada do código para estudo e apresentação |
 
 ## Referências
 
+BOSCH SENSORTEC. BMP280: Digital Pressure Sensor – Data Sheet. Bosch
+Sensortec, 2021.
+
 ESPRESSIF SYSTEMS. ESP32 Series Datasheet. Xangai: Espressif Systems.
 Disponível em: https://www.espressif.com/en/support/documents/technical-documents.
-Acesso em: 2 out. 2026.
+Acesso em: 3 out. 2026.
 
 OASIS. MQTT Version 3.1.1. 29 out. 2014. Disponível em:
 http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html.
-Acesso em: 2 out. 2026.
+Acesso em: 3 out. 2026.
 
-SQLITE CONSORTIUM. SQLite Documentation. Disponível em: https://www.sqlite.org/docs.html.
-Acesso em: 2 out. 2026.
+SQLITE CONSORTIUM. SQLite Documentation. Disponível em:
+https://www.sqlite.org/docs.html. Acesso em: 3 out. 2026.
 
 ZANELLA, Andrea et al. Internet of Things for Smart Cities. IEEE Internet of
 Things Journal, v. 1, n. 1, p. 22-32, fev. 2014.
-
-As folhas de dados específicas do DHT22, BMP180, BMP280, MQ-135 e do modelo
-físico do pluviômetro devem ser anexadas a partir dos componentes comprados.
-Os códigos exatos desses documentos **PRECISAM SER CONFIRMADOS** no PDF do
-fabricante de cada peça; por isso não foram inventados aqui.
