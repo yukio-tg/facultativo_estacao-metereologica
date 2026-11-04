@@ -11,6 +11,8 @@
     >
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
     <style>
         :root {
             color-scheme: dark;
@@ -359,8 +361,9 @@
                 `${dados.mq135_status} · ADC relativo`;
             document.getElementById("luminosidade").textContent =
                 dados.luminosidade_estado;
-            elementos.atualizacao.textContent =
-                `Última leitura: ${horario(dados.timestamp)}`;
+            elementos.atualizacao.textContent = dados.timestamp
+                ? `Última leitura: ${horario(dados.timestamp)}`
+                : "Última leitura recebida";
         }
 
         function opcoesGrafico() {
@@ -454,50 +457,51 @@
             );
         }
 
-        async function buscarJson(url) {
-            const resposta = await fetch(url, { cache: "no-store" });
-            const dados = await resposta.json();
-
-            if (!resposta.ok) {
-                throw new Error(dados.erro || `Erro HTTP ${resposta.status}`);
-            }
-            return dados;
-        }
-
-        async function atualizarDados() {
-            try {
-                const [dados, historico] = await Promise.all([
-                    buscarJson("/api/dados"),
-                    buscarJson("/api/historico?limite=40")
-                ]);
-
-                preencherCards(dados);
-                criarGraficos(historico.leituras);
-                definirEstado("online", "Dados recebidos");
-            } catch (erro) {
-                definirEstado(
-                    "erro",
-                    "Dados indisponíveis",
-                    erro.message
-                );
-            }
-        }
+        const PONTO_ESTACAO = {
+            nome: "Estação meteorológica",
+            latitude: -23.564978600650882,
+            longitude: -46.65086234823989,
+            aviso: "Posição fixa informada para a instalação da estação. Não foi obtida por GPS. A pressão vem do BMP280."
+        };
+        const RAIO_TERRA_M = 6371000;
+        const METROS_POR_GRAU_LATITUDE = 111132.92;
+        const METROS_POR_GRAU_LONGITUDE_EQUADOR = 111412.84;
 
         function metros(valor) {
             return `${numero(valor, 0)} m`;
         }
 
-        async function iniciarMapa() {
+        function calcularDistancia(latitude, longitude) {
+            const origemLat = PONTO_ESTACAO.latitude;
+            const origemLon = PONTO_ESTACAO.longitude;
+            const norte = (latitude - origemLat) * METROS_POR_GRAU_LATITUDE;
+            const leste = (longitude - origemLon)
+                * METROS_POR_GRAU_LONGITUDE_EQUADOR
+                * Math.cos(origemLat * Math.PI / 180);
+            const deltaLat = (latitude - origemLat) * Math.PI / 180;
+            const deltaLon = (longitude - origemLon) * Math.PI / 180;
+            const lat1 = origemLat * Math.PI / 180;
+            const lat2 = latitude * Math.PI / 180;
+            const a = Math.sin(deltaLat / 2) ** 2
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+            return {
+                leste,
+                norte,
+                vetorial: Math.hypot(leste, norte),
+                geografica: 2 * RAIO_TERRA_M * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            };
+        }
+
+        function iniciarMapa() {
             if (typeof L === "undefined") {
                 document.getElementById("aviso-mapa").textContent =
                     "O mapa não pôde ser carregado.";
                 return;
             }
 
-            const estacao = await buscarJson("/api/estacao");
-            const centro = [estacao.latitude, estacao.longitude];
+            const centro = [PONTO_ESTACAO.latitude, PONTO_ESTACAO.longitude];
             document.getElementById("aviso-mapa").textContent =
-                `${estacao.aviso} Clique no mapa para calcular a distância.`;
+                `${PONTO_ESTACAO.aviso} Clique no mapa para calcular a distância.`;
 
             const mapa = L.map("mapa").setView(centro, 16);
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -508,10 +512,10 @@
                 radius: 8,
                 color: "#40c9a2",
                 fillOpacity: 0.9
-            }).addTo(mapa).bindPopup(estacao.nome);
+            }).addTo(mapa).bindPopup(PONTO_ESTACAO.nome);
 
             let referencia;
-            mapa.on("click", async (evento) => {
+            mapa.on("click", (evento) => {
                 const latitude = evento.latlng.lat;
                 const longitude = evento.latlng.lng;
                 referencia?.remove();
@@ -521,25 +525,75 @@
                     fillOpacity: 0.9
                 }).addTo(mapa);
 
-                const resultado = await buscarJson(
-                    `/api/distancia?latitude=${latitude}&longitude=${longitude}`
-                );
+                const resultado = calcularDistancia(latitude, longitude);
                 document.getElementById("vetor-leste").textContent =
-                    metros(resultado.vetor_metros.leste);
+                    metros(resultado.leste);
                 document.getElementById("vetor-norte").textContent =
-                    metros(resultado.vetor_metros.norte);
+                    metros(resultado.norte);
                 document.getElementById("distancia-vetorial").textContent =
-                    metros(resultado.distancia_vetorial_m);
+                    metros(resultado.vetorial);
                 document.getElementById("distancia-geografica").textContent =
-                    metros(resultado.distancia_geografica_m);
+                    metros(resultado.geografica);
             });
         }
 
-        atualizarDados();
-        setInterval(atualizarDados, 5000);
-        iniciarMapa().catch((erro) => {
-            document.getElementById("aviso-mapa").textContent = erro.message;
-        });
+        function mostrarLeituras(atual, historico) {
+            if (!atual) {
+                definirEstado("", "Aguardando dados", "");
+                return;
+            }
+
+            preencherCards(atual);
+            if (historico.length) {
+                criarGraficos(historico);
+            }
+            definirEstado("online", "Dados recebidos");
+        }
+
+        function escutarFirebase() {
+            if (typeof firebase === "undefined") {
+                definirEstado(
+                    "erro",
+                    "Dados indisponíveis",
+                    "O Firebase não pôde ser carregado."
+                );
+                return;
+            }
+
+            firebase.initializeApp({
+                apiKey: "AIzaSyCrB3pozaoy_spB51ik7M1ASunPldNxGVI",
+                authDomain: "estacao-metereologica-esp32.firebaseapp.com",
+                databaseURL: "https://estacao-metereologica-esp32-default-rtdb.firebaseio.com",
+                projectId: "estacao-metereologica-esp32",
+                storageBucket: "estacao-metereologica-esp32.firebasestorage.app",
+                messagingSenderId: "276893671600",
+                appId: "1:276893671600:web:d200a0d76e065fed3b9b75"
+            });
+
+            const banco = firebase.database();
+            let atual = null;
+            let historico = [];
+
+            banco.ref("estacao/atual").on("value", (snap) => {
+                atual = snap.val();
+                mostrarLeituras(atual, historico);
+            }, (erro) => {
+                definirEstado("erro", "Dados indisponíveis", erro.message);
+            });
+
+            banco.ref("estacao/historico").limitToLast(40).on("value", (snap) => {
+                historico = [];
+                snap.forEach((item) => {
+                    historico.push(item.val());
+                });
+                mostrarLeituras(atual, historico);
+            }, (erro) => {
+                definirEstado("erro", "Dados indisponíveis", erro.message);
+            });
+        }
+
+        escutarFirebase();
+        iniciarMapa();
     </script>
 </body>
 </html>

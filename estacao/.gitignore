@@ -7,3 +7,6 @@ estacao.db
 estacao.db-shm
 estacao.db-wal
 .coverage
+.firebase/
+firebase-debug.log
+firebase-debug.*.log

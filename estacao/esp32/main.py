@@ -66,6 +66,96 @@ def conectar_mqtt():
 
 
 # ==============================================================================
+# FIREBASE (Realtime Database, plano gratuito)
+# A gravação usa a API REST. O dashboard público lê estes caminhos.
+# ==============================================================================
+
+FIREBASE_ATUAL = (
+    "https://estacao-metereologica-esp32-default-rtdb"
+    ".firebaseio.com/estacao/atual.json"
+)
+FIREBASE_HISTORICO = (
+    "https://estacao-metereologica-esp32-default-rtdb"
+    ".firebaseio.com/estacao/historico.json"
+)
+relogio_ajustado = False
+
+
+def ajustar_relogio():
+    global relogio_ajustado
+
+    if relogio_ajustado:
+        return
+
+    try:
+        import ntptime
+        ntptime.host = "pool.ntp.org"
+        ntptime.settime()
+        relogio_ajustado = True
+        print("Relógio sincronizado em UTC.")
+    except Exception as erro:
+        print("Relógio não sincronizado:", erro)
+
+
+def timestamp_utc():
+    ano, mes, dia, hora, minuto, segundo = time.gmtime()[:6]
+    return "%04d-%02d-%02dT%02d:%02d:%02dZ" % (
+        ano, mes, dia, hora, minuto, segundo
+    )
+
+
+def _requisicao_json(metodo, url, corpo):
+    try:
+        import usocket as socket
+    except ImportError:
+        import socket
+
+    try:
+        import ussl as ssl
+    except ImportError:
+        import ssl
+
+    resto = url.split("://", 1)[1]
+    host, caminho = resto.split("/", 1)
+    caminho = "/" + caminho
+    endereco = socket.getaddrinfo(host, 443)[0][-1]
+    conexao = socket.socket()
+    conexao.settimeout(10)
+
+    try:
+        conexao.connect(endereco)
+        conexao = ssl.wrap_socket(conexao, server_hostname=host)
+        requisicao = (
+            "%s %s HTTP/1.0\r\n"
+            "Host: %s\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n"
+        ) % (metodo, caminho, host, len(corpo))
+        conexao.write(requisicao.encode() + corpo)
+        status = conexao.readline()
+        return status
+    finally:
+        conexao.close()
+
+
+def publicar_firebase(dados):
+    corpo = json.dumps(dados).encode()
+
+    try:
+        status_atual = _requisicao_json("PUT", FIREBASE_ATUAL, corpo)
+        status_historico = _requisicao_json(
+            "POST",
+            FIREBASE_HISTORICO,
+            corpo
+        )
+        print("Firebase atual:", status_atual)
+        print("Firebase histórico:", status_historico)
+    except Exception as erro:
+        print("Firebase indisponível:", erro)
+
+
+# ==============================================================================
 # DRIVER DO BMP280
 # O cálculo segue a compensação de temperatura e pressão da Bosch.
 # Endereços comuns: 0x76 e 0x77. O identificador do chip é 0x58.
@@ -152,6 +242,7 @@ class BMP280:
 cliente_mqtt = None
 
 if conectar_wifi():
+    ajustar_relogio()
     cliente_mqtt = conectar_mqtt()
 
 
@@ -272,6 +363,7 @@ print("BMP280: GPIOs 21 (SDA) e 22 (SCL)")
 print("OLED: opcional, no mesmo I2C")
 print("MQTT:", MQTT_BROKER)
 print("Tópico:", MQTT_TOPICO)
+print("Firebase: estacao/atual e estacao/historico")
 print("==========================================")
 print("")
 
@@ -295,6 +387,7 @@ while True:
         ultimo_tempo_reconexao_mqtt = tempo_atual
 
         if conectar_wifi(tentativas=5):
+            ajustar_relogio()
             cliente_mqtt = conectar_mqtt()
 
     # ==========================================================================
@@ -388,7 +481,8 @@ while True:
             "pressao_hpa": pressao,
             "mq135_valor": valor_mq135,
             "mq135_status": status_ar,
-            "luminosidade_estado": estado_luz
+            "luminosidade_estado": estado_luz,
+            "timestamp": timestamp_utc()
         }
 
 
@@ -400,37 +494,39 @@ while True:
 
 
         # ----------------------------------------------------------------------
-        # PUBLICAR NO MQTT
+        # PUBLICAR NO MQTT E NO FIREBASE
         # ----------------------------------------------------------------------
 
         if not bmp_disponivel or pressao <= 0:
-            print("BMP280 sem leitura válida: MQTT não enviado.")
-            ultimo_tempo_mqtt = tempo_atual
-        elif cliente_mqtt is None:
-            print("MQTT offline: leitura não enviada.")
+            print("BMP280 sem leitura válida: envio não realizado.")
         else:
-            try:
-                cliente_mqtt.publish(
-                    MQTT_TOPICO,
-                    mensagem
-                )
-
-                print("")
-                print("========== MQTT ==========")
-                print("Dados enviados:")
-                print(mensagem)
-                print("==========================")
-                print("")
-
-            except Exception as erro:
-                print("Erro ao enviar MQTT:", erro)
-
+            if cliente_mqtt is None:
+                print("MQTT offline: leitura não enviada ao broker.")
+            else:
                 try:
-                    cliente_mqtt.disconnect()
-                except Exception:
-                    pass
+                    cliente_mqtt.publish(
+                        MQTT_TOPICO,
+                        mensagem
+                    )
 
-                cliente_mqtt = None
+                    print("")
+                    print("========== MQTT ==========")
+                    print("Dados enviados:")
+                    print(mensagem)
+                    print("==========================")
+                    print("")
+
+                except Exception as erro:
+                    print("Erro ao enviar MQTT:", erro)
+
+                    try:
+                        cliente_mqtt.disconnect()
+                    except Exception:
+                        pass
+
+                    cliente_mqtt = None
+
+            publicar_firebase(dados)
 
 
         ultimo_tempo_mqtt = tempo_atual

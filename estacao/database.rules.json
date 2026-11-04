@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "estacao": {
+      ".read": true,
+      "atual": {
+        ".write": true
+      },
+      "historico": {
+        ".write": true
+      }
+    }
+  }
+}
