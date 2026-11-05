@@ -261,9 +261,6 @@
             </div>
         </header>
 
-        <p class="aviso">
-            A pressão é medida pelo BMP280.
-        </p>
         <p class="mensagem" id="mensagem" role="status"></p>
 
         <section class="cards" aria-label="Última leitura">
@@ -370,6 +367,7 @@
             return {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false,
                 interaction: { mode: "index", intersect: false },
                 plugins: {
                     legend: {
@@ -394,6 +392,34 @@
             };
         }
 
+        function faixaCentrada(valores, amplitudeMinima) {
+            const numeros = valores.map(Number).filter(Number.isFinite);
+            if (!numeros.length) {
+                return {};
+            }
+
+            const menor = Math.min(...numeros);
+            const maior = Math.max(...numeros);
+            const centro = (menor + maior) / 2;
+            const amplitude = Math.max(maior - menor, amplitudeMinima);
+            return {
+                min: centro - amplitude / 2,
+                max: centro + amplitude / 2
+            };
+        }
+
+        function garantirGrafico(existente, canvasId, datasets) {
+            if (existente) {
+                return existente;
+            }
+
+            return new Chart(document.getElementById(canvasId), {
+                type: "line",
+                data: { labels: [], datasets },
+                options: opcoesGrafico()
+            });
+        }
+
         function criarGraficos(leituras) {
             if (typeof Chart === "undefined") {
                 return;
@@ -402,66 +428,64 @@
             const rotulos = leituras.map(
                 item => new Date(item.timestamp).toLocaleTimeString("pt-BR")
             );
+            const temperaturas = leituras.map(item => item.dht22_temp);
+            const umidades = leituras.map(item => item.dht22_umi);
+            const pressoes = leituras.map(item => item.pressao_hpa);
 
-            graficoClima?.destroy();
-            graficoAmbiente?.destroy();
-
-            graficoClima = new Chart(
-                document.getElementById("grafico-clima"),
+            graficoClima = garantirGrafico(graficoClima, "grafico-clima", [
                 {
-                    type: "line",
-                    data: {
-                        labels: rotulos,
-                        datasets: [
-                            {
-                                label: "Temperatura (°C)",
-                                data: leituras.map(item => item.dht22_temp),
-                                borderColor: "#ff9e64",
-                                backgroundColor: "#ff9e64",
-                                tension: 0.3,
-                                yAxisID: "y"
-                            },
-                            {
-                                label: "Umidade (%)",
-                                data: leituras.map(item => item.dht22_umi),
-                                borderColor: "#55b9f3",
-                                backgroundColor: "#55b9f3",
-                                tension: 0.3,
-                                yAxisID: "y1"
-                            }
-                        ]
-                    },
-                    options: opcoesGrafico()
-                }
-            );
-
-            graficoAmbiente = new Chart(
-                document.getElementById("grafico-ambiente"),
+                    label: "Temperatura (°C)",
+                    data: [],
+                    borderColor: "#ff9e64",
+                    backgroundColor: "#ff9e64",
+                    tension: 0.3,
+                    yAxisID: "y"
+                },
                 {
-                    type: "line",
-                    data: {
-                        labels: rotulos,
-                        datasets: [
-                            {
-                                label: "Pressão (hPa)",
-                                data: leituras.map(item => item.pressao_hpa),
-                                borderColor: "#b692f6",
-                                backgroundColor: "#b692f6",
-                                tension: 0.3,
-                                yAxisID: "y"
-                            }
-                        ]
-                    },
-                    options: opcoesGrafico()
+                    label: "Umidade (%)",
+                    data: [],
+                    borderColor: "#55b9f3",
+                    backgroundColor: "#55b9f3",
+                    tension: 0.3,
+                    yAxisID: "y1"
                 }
+            ]);
+            graficoClima.data.labels = rotulos;
+            graficoClima.data.datasets[0].data = temperaturas;
+            graficoClima.data.datasets[1].data = umidades;
+            const faixaTemperatura = faixaCentrada(temperaturas, 5);
+            graficoClima.options.scales.y.min = faixaTemperatura.min;
+            graficoClima.options.scales.y.max = faixaTemperatura.max;
+            graficoClima.update("none");
+
+            graficoAmbiente = garantirGrafico(
+                graficoAmbiente,
+                "grafico-ambiente",
+                [
+                    {
+                        label: "Pressão (hPa)",
+                        data: [],
+                        borderColor: "#b692f6",
+                        backgroundColor: "#b692f6",
+                        tension: 0.3,
+                        yAxisID: "y"
+                    }
+                ]
             );
+            graficoAmbiente.data.labels = rotulos;
+            graficoAmbiente.data.datasets[0].data = pressoes;
+            graficoAmbiente.update("none");
         }
 
         const PONTO_ESTACAO = {
             nome: "Estação meteorológica",
             latitude: -23.564978600650882,
-            longitude: -46.65086234823989,
-            aviso: "Posição fixa informada para a instalação da estação. Não foi obtida por GPS. A pressão vem do BMP280."
+            longitude: -46.65086234823989
+        };
+        const PONTO_CAMARGO = {
+            nome: "Rua Camargo, 457, Butantã",
+            latitude: -23.5699413,
+            longitude: -46.7088697
         };
         const RAIO_TERRA_M = 6371000;
         const METROS_POR_GRAU_LATITUDE = 111132.92;
@@ -492,6 +516,49 @@
             };
         }
 
+        function preencherVetor(resultado) {
+            document.getElementById("vetor-leste").textContent =
+                metros(resultado.leste);
+            document.getElementById("vetor-norte").textContent =
+                metros(resultado.norte);
+            document.getElementById("distancia-vetorial").textContent =
+                metros(resultado.vetorial);
+            document.getElementById("distancia-geografica").textContent =
+                metros(resultado.geografica);
+        }
+
+        function desenharVetor(mapa, origem, destino) {
+            const grupo = L.layerGroup().addTo(mapa);
+
+            function redesenhar() {
+                grupo.clearLayers();
+                L.polyline([origem, destino], {
+                    color: "#55b9f3",
+                    weight: 3
+                }).addTo(grupo);
+
+                const partida = mapa.latLngToLayerPoint(origem);
+                const chegada = mapa.latLngToLayerPoint(destino);
+                const angulo = Math.atan2(
+                    chegada.y - partida.y,
+                    chegada.x - partida.x
+                );
+                const tamanho = 16;
+                const abertura = Math.PI / 7;
+                const ponta = (desvio) => mapa.layerPointToLatLng(L.point(
+                    chegada.x - tamanho * Math.cos(angulo + desvio),
+                    chegada.y - tamanho * Math.sin(angulo + desvio)
+                ));
+                L.polyline(
+                    [ponta(-abertura), destino, ponta(abertura)],
+                    { color: "#55b9f3", weight: 3 }
+                ).addTo(grupo);
+            }
+
+            redesenhar();
+            mapa.on("zoomend", redesenhar);
+        }
+
         function iniciarMapa() {
             if (typeof L === "undefined") {
                 document.getElementById("aviso-mapa").textContent =
@@ -499,42 +566,33 @@
                 return;
             }
 
-            const centro = [PONTO_ESTACAO.latitude, PONTO_ESTACAO.longitude];
+            const estacao = [PONTO_ESTACAO.latitude, PONTO_ESTACAO.longitude];
+            const camargo = [PONTO_CAMARGO.latitude, PONTO_CAMARGO.longitude];
+            const resultado = calcularDistancia(
+                PONTO_CAMARGO.latitude,
+                PONTO_CAMARGO.longitude
+            );
             document.getElementById("aviso-mapa").textContent =
-                `${PONTO_ESTACAO.aviso} Clique no mapa para calcular a distância.`;
+                "Vetor a partir da estação marcada até a Rua Camargo, 457, Butantã.";
+            preencherVetor(resultado);
 
-            const mapa = L.map("mapa").setView(centro, 16);
+            const mapa = L.map("mapa");
+            mapa.fitBounds([estacao, camargo], { padding: [36, 36] });
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
                 maxZoom: 18,
                 attribution: "&copy; OpenStreetMap"
             }).addTo(mapa);
-            L.circleMarker(centro, {
+            L.circleMarker(estacao, {
                 radius: 8,
                 color: "#40c9a2",
                 fillOpacity: 0.9
             }).addTo(mapa).bindPopup(PONTO_ESTACAO.nome);
-
-            let referencia;
-            mapa.on("click", (evento) => {
-                const latitude = evento.latlng.lat;
-                const longitude = evento.latlng.lng;
-                referencia?.remove();
-                referencia = L.circleMarker([latitude, longitude], {
-                    radius: 7,
-                    color: "#55b9f3",
-                    fillOpacity: 0.9
-                }).addTo(mapa);
-
-                const resultado = calcularDistancia(latitude, longitude);
-                document.getElementById("vetor-leste").textContent =
-                    metros(resultado.leste);
-                document.getElementById("vetor-norte").textContent =
-                    metros(resultado.norte);
-                document.getElementById("distancia-vetorial").textContent =
-                    metros(resultado.vetorial);
-                document.getElementById("distancia-geografica").textContent =
-                    metros(resultado.geografica);
-            });
+            L.circleMarker(camargo, {
+                radius: 8,
+                color: "#55b9f3",
+                fillOpacity: 0.9
+            }).addTo(mapa).bindPopup(PONTO_CAMARGO.nome);
+            desenharVetor(mapa, estacao, camargo);
         }
 
         function mostrarLeituras(atual, historico) {

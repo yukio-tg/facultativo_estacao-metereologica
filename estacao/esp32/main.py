@@ -18,9 +18,15 @@ def conectar_wifi(tentativas=20):
 
     if not wifi.isconnected():
         print("Conectando ao Wi-Fi...")
-        # No Wokwi estes valores funcionam. Na placa física, troque pelo
-        # nome e pela senha da rede real. Não grave a senha em um repositório.
-        wifi.connect("Wokwi-GUEST", "")
+        # A senha da rede física fica só na placa. Não a grave aqui.
+        wifi.active(False)
+        time.sleep(0.2)
+        wifi.active(True)
+        try:
+            wifi.connect("kk", "")
+        except OSError as erro:
+            print("Falha ao iniciar o Wi-Fi:", erro)
+            return False
 
         for _ in range(tentativas):
             if wifi.isconnected():
@@ -319,7 +325,7 @@ mq135_adc.atten(
 # 4. Sensor digital de luminosidade
 # GPIO 35, somente entrada. O módulo informa claro ou escuro, não percentual.
 # Se o texto ficar invertido em relação ao ambiente, troque False por True.
-LUZ_INVERTIDA = False
+LUZ_INVERTIDA = True
 
 sensor_luz = machine.Pin(
     35,
